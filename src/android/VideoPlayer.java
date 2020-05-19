@@ -29,6 +29,8 @@ import org.apache.cordova.PluginResult;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.Objects;
+
 public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, OnPreparedListener, OnErrorListener, OnDismissListener {
 
     protected static final String LOG_TAG = "VideoPlayer";
@@ -91,6 +93,7 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
                 if(player.isPlaying()) {
                     player.stop();
                 }
+                player.reset();
                 player.release();
                 dialog.dismiss();
             }
@@ -123,11 +126,26 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
     protected void openVideoDialog(String path, JSONObject options) {
+
+        boolean isCancelable = true;
+        try {
+//            isCancelable = options.getBoolean("isCancelable");
+            Log.d(LOG_TAG, "isCancelable: " + isCancelable);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, Objects.requireNonNull(e.getLocalizedMessage()));
+
+            PluginResult result = new PluginResult(PluginResult.Status.ERROR, e.getLocalizedMessage());
+            result.setKeepCallback(false); // release status callback in JS side
+            callbackContext.sendPluginResult(result);
+            callbackContext = null;
+            return;
+        }
+
         // Let's create the main dialog
         dialog = new Dialog(cordova.getActivity(), android.R.style.Theme_NoTitleBar);
         dialog.getWindow().getAttributes().windowAnimations = android.R.style.Animation_Dialog;
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        dialog.setCancelable(false);
+        dialog.setCancelable(isCancelable);
         dialog.setOnDismissListener(this);
         dialog.getWindow().setFlags(LayoutParams.FLAG_FULLSCREEN, LayoutParams.FLAG_FULLSCREEN);
 
@@ -139,7 +157,6 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
         main.setVerticalGravity(Gravity.CENTER_VERTICAL);
 
         videoView = new VideoView(cordova.getActivity());
-        videoView.setLayoutParams(new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         // videoView.setVideoURI(uri);
         // videoView.setVideoPath(path);
         main.addView(videoView);
@@ -176,7 +193,7 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
         }
 
         try {
-            float volume = Float.valueOf(options.getString("volume"));
+            float volume = Float.parseFloat(options.getString("volume"));
             Log.d(LOG_TAG, "setVolume: " + volume);
             player.setVolume(volume, volume);
         } catch (Exception e) {
@@ -185,27 +202,6 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
             callbackContext.sendPluginResult(result);
             callbackContext = null;
             return;
-        }
-
-        if(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
-            try {
-                int scalingMode = options.getInt("scalingMode");
-                switch (scalingMode) {
-                    case MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING:
-                        Log.d(LOG_TAG, "setVideoScalingMode VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING");
-                        player.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
-                        break;
-                    default:
-                        Log.d(LOG_TAG, "setVideoScalingMode VIDEO_SCALING_MODE_SCALE_TO_FIT");
-                        player.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
-                }
-            } catch (Exception e) {
-                PluginResult result = new PluginResult(PluginResult.Status.ERROR, e.getLocalizedMessage());
-                result.setKeepCallback(false); // release status callback in JS side
-                callbackContext.sendPluginResult(result);
-                callbackContext = null;
-                return;
-            }
         }
 
         final SurfaceHolder mHolder = videoView.getHolder();
@@ -226,9 +222,21 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
             @Override
             public void surfaceDestroyed(SurfaceHolder holder) {
                 player.release();
+                dialog.dismiss();
             }
             @Override
-            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                int videoWidth = player.getVideoWidth();
+                int videoHeight = player.getVideoHeight();
+
+                android.view.ViewGroup.LayoutParams lp = videoView.getLayoutParams();
+
+                lp.width = width;
+
+                lp.height = (int) (((float)videoHeight / (float)videoWidth) * (float)width);
+
+                videoView.setLayoutParams(lp);
+            }
         });
 
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
@@ -247,6 +255,7 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
         if(mp.isPlaying()) {
             mp.stop();
         }
+        mp.reset();
         mp.release();
         dialog.dismiss();
         return false;
@@ -260,6 +269,10 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
     @Override
     public void onCompletion(MediaPlayer mp) {
         Log.d(LOG_TAG, "MediaPlayer completed");
+        if(mp.isPlaying()) {
+            mp.stop();
+        }
+        mp.reset();
         mp.release();
         dialog.dismiss();
     }
